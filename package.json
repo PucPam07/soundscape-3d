@@ -1,0 +1,47 @@
+{
+  "name": "soundscape-3d",
+  "version": "1.0.0",
+  "private": true,
+  "description": "SoundScape 3D - An interactive 3D WebGL & Web Audio Visualizer built with Next.js, Three.js, and Tailwind CSS",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/PucPam07/soundscape-3d.git"
+  },
+  "keywords": [
+    "threejs",
+    "webgl",
+    "web-audio-api",
+    "audio-visualizer",
+    "nextjs",
+    "react",
+    "tailwindcss"
+  ],
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "clsx": "^2.1.1",
+    "lucide-react": "^1.6.0",
+    "next": "16.3.0",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "tailwind-merge": "^3.5.0",
+    "three": "^0.185.1",
+    "tw-animate-css": "^1.4.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^24",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@types/three": "^0.185.4",
+    "eslint": "^9",
+    "eslint-config-next": "16.3.0",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}
