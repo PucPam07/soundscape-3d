@@ -293,6 +293,11 @@ export default function Home() {
         onFileUpload={handleFileUpload}
         onLoadDemoPlaylist={handleLoadDemoPlaylist}
       />
+
+      {/* Author Watermark (Bottom-Right) */}
+      <div className="fixed bottom-2.5 right-4 z-10 text-[11px] text-white/30 hover:text-white/60 transition-colors select-none pointer-events-none tracking-wider font-light backdrop-blur-[1px] px-2 py-0.5 rounded">
+        Made by Phạm Triệu Tấn Phúc
+      </div>
     </div>
   );
 }
