@@ -1,0 +1,16 @@
+{
+  "name": "SoundScape 3D",
+  "short_name": "SoundScape 3D",
+  "description": "Interactive 3D WebGL & Web Audio Visualizer",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#11101d",
+  "theme_color": "#11101d",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}

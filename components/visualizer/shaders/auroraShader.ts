@@ -1,97 +1,82 @@
 export const TRAIL_STEPS = 4;
 
 export const auroraVertexShader = `
+  precision highp float;
+
   uniform float uTime;
   uniform float uPixelRatio;
-  uniform float uData[2048];
-  uniform int uParticleCount;
   uniform float uMorphT;
+  uniform float uBass;
+  uniform float uMid;
+  uniform float uAudioLevel;
   uniform int uTrailSteps;
+
   attribute float trailStep;
+  attribute vec3 aPosSphere;
+  attribute vec3 aPosTorus;
+  attribute vec3 aPosCube;
+  attribute vec3 aRand;
+
   varying float vFreq;
   varying float vNoise;
   varying float vTrailStep;
   varying float vRand;
 
   void main() {
-    float i = float(gl_VertexID);
-    float count = float(uParticleCount);
-
-    float t = i / count;
-    float rand1 = fract(sin(i * 127.1) * 43758.5453);
-    float rand2 = fract(sin(i * 137.1) * 43758.5453);
-    float rand3 = fract(sin(i * 149.7) * 43758.5453);
-
     float trailT = 1.0 - trailStep / float(uTrailSteps);
-    float trailOffset = uTime - trailStep * 0.07 - rand1 * 0.03;
+    float trailOffset = uTime - trailStep * 0.07 - aRand.x * 0.03;
 
-    // 1. Sphere Shape Morph Target
-    float thetaS = rand1 * 6.2831853;
-    float phiS = acos(2.0 * rand2 - 1.0);
-    float rS = 3.1 + 0.36 * sin(trailOffset + rand1 * 6.28);
-    float xS = rS * sin(phiS) * cos(thetaS);
-    float yS = rS * sin(phiS) * sin(thetaS);
-    float zS = rS * cos(phiS);
-
-    // 2. Torus Shape Morph Target
-    float u = rand1 * 6.2831853;
-    float v = rand2 * 6.2831853;
-    float R = 2.15;
-    float r = 1.0 + 0.28 * sin(trailOffset + rand2 * 5.23);
-    float xT = (R + r * cos(v)) * cos(u);
-    float yT = (R + r * cos(v)) * sin(u);
-    float zT = r * sin(v);
-
-    // 3. Cube Shape Morph Target
-    float side = 3.0;
-    float xC = (rand1 - 0.5) * side * 2.0;
-    float yC = (rand2 - 0.5) * side * 2.0;
-    float zC = (rand3 - 0.5) * side * 2.0;
-
-    // Shape Interpolation
+    // Shape Morph Interpolation (Sphere -> Torus -> Cube -> Sphere)
     float morphId = mod(floor(uMorphT), 3.0);
     float morphFrac = fract(uMorphT);
 
     vec3 posA, posB;
     if (morphId < 0.5) {
-      posA = vec3(xS, yS, zS);
-      posB = vec3(xT, yT, zT);
+      posA = aPosSphere;
+      posB = aPosTorus;
     } else if (morphId < 1.5) {
-      posA = vec3(xT, yT, zT);
-      posB = vec3(xC, yC, zC);
+      posA = aPosTorus;
+      posB = aPosCube;
     } else {
-      posA = vec3(xC, yC, zC);
-      posB = vec3(xS, yS, zS);
+      posA = aPosCube;
+      posB = aPosSphere;
     }
     vec3 pos = mix(posA, posB, morphFrac);
 
-    // Audio Responsiveness & Dynamic Chaos
-    float freq = uData[int(mod(i, 256.0))] / 255.0;
-    float chaos = 1.2 + 2.5 * freq * abs(sin(trailOffset * 3.0 + rand1 * 25.0));
-    pos *= (1.0 + 0.2 * freq * chaos);
+    // Dynamic undulation along trail and time
+    float undulation = sin(trailOffset * 2.0 + aRand.y * 6.28) * 0.15;
+    pos += normalize(pos + vec3(0.001)) * undulation;
 
-    if (freq > 0.70) {
+    // Audio Responsiveness
+    float freq = uBass * 0.7 + uAudioLevel * 0.3;
+    float chaos = 1.0 + 2.0 * uBass * abs(sin(trailOffset * 3.0 + aRand.x * 25.0));
+    pos *= (1.0 + 0.25 * freq * chaos);
+
+    if (uBass > 0.6) {
       pos += vec3(
-        sin(trailOffset * 12.0 + rand1 * 16.0) * freq * 1.2,
-        cos(trailOffset * 10.0 + rand2 * 15.0) * freq * 1.2,
-        sin(trailOffset * 7.1 + rand3 * 17.0) * freq * 1.2
+        sin(trailOffset * 8.0 + aRand.x * 16.0) * uBass * 0.6,
+        cos(trailOffset * 7.0 + aRand.y * 15.0) * uBass * 0.6,
+        sin(trailOffset * 6.0 + aRand.z * 17.0) * uBass * 0.6
       );
     }
 
     vFreq = freq;
     vNoise = chaos;
     vTrailStep = trailT;
-    vRand = rand1;
+    vRand = aRand.x;
 
     vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
     gl_Position = projectionMatrix * mvPosition;
-    float dist = abs(gl_Position.w);
-    float baseSize = 30.0 + 25.5 * freq + 7.5 * rand3 + 9.0 * (1.0 - trailT);
-    gl_PointSize = clamp(baseSize / dist, 2.5, 24.0);
+
+    float dist = max(0.5, -mvPosition.z);
+    float baseSize = 24.0 + 20.0 * freq + 8.0 * aRand.z + 8.0 * (1.0 - trailT);
+    gl_PointSize = clamp((baseSize * uPixelRatio) / dist, 2.0, 28.0);
   }
 `;
 
 export const auroraFragmentShader = `
+  precision highp float;
+
   uniform float uTime;
   uniform vec3 uColorA;
   uniform vec3 uColorB;
@@ -127,6 +112,7 @@ export const auroraFragmentShader = `
     float totalAlpha = a * trailAlpha * clamp(twinkle, 0.70, 1.1) * (0.8 + 0.85 * uAudioLevel);
 
     gl_FragColor = vec4(finalColor, totalAlpha);
-    if (gl_FragColor.a < 0.02) discard;
+    if (gl_FragColor.a < 0.015) discard;
   }
 `;
+

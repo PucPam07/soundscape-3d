@@ -40,11 +40,16 @@ export const VisualizerCanvas: React.FC<VisualizerCanvasProps> = ({
 
     const width = container.clientWidth || window.innerWidth;
     const height = container.clientHeight || window.innerHeight;
+    const aspect = width / height;
 
-    // 1. Scene & Camera
+    // 1. Scene & Responsive Camera
     const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(60, width / height, 0.1, 1000);
-    camera.position.set(0, 2, 8);
+    const camera = new THREE.PerspectiveCamera(60, aspect, 0.1, 1000);
+    
+    // Scale initial camera distance on mobile portrait screens
+    const initZ = aspect < 1.0 ? Math.min(13.0, 8.0 / Math.max(0.55, aspect)) : 8;
+    const initY = aspect < 1.0 ? 1.6 * (initZ / 8.0) : 2;
+    camera.position.set(0, initY, initZ);
     camera.lookAt(0, 0, 0);
     cameraRef.current = camera;
 
@@ -72,7 +77,7 @@ export const VisualizerCanvas: React.FC<VisualizerCanvasProps> = ({
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.05;
-    controls.maxDistance = 30;
+    controls.maxDistance = 32;
     controls.minDistance = 1.5;
     controlsRef.current = controls;
 
@@ -91,7 +96,7 @@ export const VisualizerCanvas: React.FC<VisualizerCanvasProps> = ({
 
     // 6. Instantiate All 7 Visualizers
     const pixelRatio = renderer.getPixelRatio();
-    const cloud = new ParticleCloudVisualizer();
+    const cloud = new ParticleCloudVisualizer(pixelRatio);
     const tunnel = new TunnelWaveVisualizer();
     const aurora = new AuroraVisualizer(pixelRatio);
     const galaxy = new CosmicGalaxyVisualizer();
@@ -127,7 +132,7 @@ export const VisualizerCanvas: React.FC<VisualizerCanvasProps> = ({
       spectrumBars.group.visible = currentType === "spectrum_bars";
 
       if (currentType === "cloud") {
-        cloud.update(elapsedTime, currentFreq);
+        cloud.update(elapsedTime, currentFreq, pixelRatio);
       } else if (currentType === "tunnel") {
         tunnel.update(elapsedTime, currentFreq);
       } else if (currentType === "aurora") {
@@ -181,8 +186,14 @@ export const VisualizerCanvas: React.FC<VisualizerCanvasProps> = ({
 
   // When visualizerType changes, reset camera to standard perspective
   useEffect(() => {
-    if (cameraRef.current && controlsRef.current) {
-      cameraRef.current.position.set(0, 2, 8);
+    if (cameraRef.current && controlsRef.current && containerRef.current) {
+      const w = containerRef.current.clientWidth || window.innerWidth;
+      const h = containerRef.current.clientHeight || window.innerHeight;
+      const aspect = w / h;
+      const z = aspect < 1.0 ? Math.min(13.0, 8.0 / Math.max(0.55, aspect)) : 8;
+      const y = aspect < 1.0 ? 1.6 * (z / 8.0) : 2;
+
+      cameraRef.current.position.set(0, y, z);
       cameraRef.current.lookAt(0, 0, 0);
       controlsRef.current.target.set(0, 0, 0);
       controlsRef.current.update();
@@ -197,3 +208,4 @@ export const VisualizerCanvas: React.FC<VisualizerCanvasProps> = ({
     />
   );
 };
+

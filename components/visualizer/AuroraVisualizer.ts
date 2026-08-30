@@ -68,20 +68,65 @@ export class AuroraVisualizer {
       const geom = new THREE.BufferGeometry();
       const totalPoints = config.particleCount * TRAIL_STEPS;
       const positions = new Float32Array(totalPoints * 3);
+      const posSphere = new Float32Array(totalPoints * 3);
+      const posTorus = new Float32Array(totalPoints * 3);
+      const posCube = new Float32Array(totalPoints * 3);
+      const rands = new Float32Array(totalPoints * 3);
       const trailSteps = new Float32Array(totalPoints);
+
+      // Precompute shape morph targets on CPU
+      const baseRands: { r1: number; r2: number; r3: number }[] = [];
+      for (let p = 0; p < config.particleCount; p++) {
+        baseRands.push({
+          r1: Math.random(),
+          r2: Math.random(),
+          r3: Math.random(),
+        });
+      }
 
       let idx = 0;
       for (let h = 0; h < TRAIL_STEPS; h++) {
         for (let p = 0; p < config.particleCount; p++) {
-          positions[idx * 3] = 0;
-          positions[idx * 3 + 1] = 0;
-          positions[idx * 3 + 2] = 0;
+          const { r1, r2, r3 } = baseRands[p];
+          const i3 = idx * 3;
+
+          // 1. Sphere Shape
+          const thetaS = r1 * Math.PI * 2;
+          const phiS = Math.acos(2.0 * r2 - 1.0);
+          const rS = 3.1 + 0.36 * Math.sin(r1 * Math.PI * 2);
+          posSphere[i3]     = rS * Math.sin(phiS) * Math.cos(thetaS);
+          posSphere[i3 + 1] = rS * Math.sin(phiS) * Math.sin(thetaS);
+          posSphere[i3 + 2] = rS * Math.cos(phiS);
+
+          // 2. Torus Shape
+          const u = r1 * Math.PI * 2;
+          const v = r2 * Math.PI * 2;
+          const R = 2.15;
+          const r = 1.0 + 0.28 * Math.sin(r2 * 5.23);
+          posTorus[i3]     = (R + r * Math.cos(v)) * Math.cos(u);
+          posTorus[i3 + 1] = (R + r * Math.cos(v)) * Math.sin(u);
+          posTorus[i3 + 2] = r * Math.sin(v);
+
+          // 3. Cube Shape
+          const side = 3.0;
+          posCube[i3]     = (r1 - 0.5) * side * 2.0;
+          posCube[i3 + 1] = (r2 - 0.5) * side * 2.0;
+          posCube[i3 + 2] = (r3 - 0.5) * side * 2.0;
+
+          rands[i3]     = r1;
+          rands[i3 + 1] = r2;
+          rands[i3 + 2] = r3;
+
           trailSteps[idx] = h;
           idx++;
         }
       }
 
       geom.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+      geom.setAttribute("aPosSphere", new THREE.BufferAttribute(posSphere, 3));
+      geom.setAttribute("aPosTorus", new THREE.BufferAttribute(posTorus, 3));
+      geom.setAttribute("aPosCube", new THREE.BufferAttribute(posCube, 3));
+      geom.setAttribute("aRand", new THREE.BufferAttribute(rands, 3));
       geom.setAttribute("trailStep", new THREE.BufferAttribute(trailSteps, 1));
 
       const mat = new THREE.ShaderMaterial({
@@ -90,16 +135,16 @@ export class AuroraVisualizer {
         uniforms: {
           uTime: { value: 0 },
           uPixelRatio: { value: pixelRatio },
-          uData: { value: new Array(2048).fill(0) },
-          uParticleCount: { value: config.particleCount },
           uMorphT: { value: config.morphOffset },
+          uBass: { value: 0 },
+          uMid: { value: 0 },
+          uAudioLevel: { value: 0 },
           uTrailSteps: { value: TRAIL_STEPS },
           uColorA: { value: new THREE.Color(config.colorA) },
           uColorB: { value: new THREE.Color(config.colorB) },
           uGlowColor: { value: new THREE.Color(config.glowColor) },
           uAlphaBase: { value: config.alphaBase },
           uAlphaGlow: { value: config.alphaGlow },
-          uAudioLevel: { value: 0 },
         },
         transparent: true,
         depthWrite: false,
@@ -117,16 +162,34 @@ export class AuroraVisualizer {
     }
   }
 
-  public update(elapsedTime: number, frequencyData: Uint8Array | null, pixelRatio: number = 1) {
+  public update(
+    elapsedTime: number,
+    frequencyData: Uint8Array | null,
+    pixelRatio: number = 1
+  ) {
+    let bass = 0;
+    let mid = 0;
     let audioLevel = 0;
+
     if (frequencyData && frequencyData.length > 0) {
-      let maxVal = 0;
-      for (let i = 0; i < frequencyData.length; i++) {
-        if (frequencyData[i] > maxVal) maxVal = frequencyData[i];
+      const len = frequencyData.length;
+      const bassBins = Math.min(16, len);
+      for (let i = 0; i < bassBins; i++) {
+        bass += frequencyData[i];
       }
-      audioLevel = maxVal / 255;
+      bass = bass / (bassBins * 255);
+
+      const midBins = Math.min(128, len);
+      for (let i = bassBins; i < midBins; i++) {
+        mid += frequencyData[i];
+      }
+      mid = mid / (Math.max(1, midBins - bassBins) * 255);
+
+      for (let i = 0; i < len; i++) {
+        audioLevel += frequencyData[i];
+      }
+      audioLevel = audioLevel / (len * 255);
     }
-    audioLevel = Math.pow(audioLevel, 1.1) * 0.85 + 0.01;
 
     for (const layer of this.layers) {
       layer.morphT += layer.config.morphSpeed;
@@ -135,15 +198,9 @@ export class AuroraVisualizer {
       layer.material.uniforms.uTime.value = elapsedTime;
       layer.material.uniforms.uPixelRatio.value = pixelRatio;
       layer.material.uniforms.uMorphT.value = layer.morphT;
+      layer.material.uniforms.uBass.value = Math.pow(bass, 1.2) * 1.1;
+      layer.material.uniforms.uMid.value = mid;
       layer.material.uniforms.uAudioLevel.value = audioLevel;
-
-      if (frequencyData) {
-        const uData = layer.material.uniforms.uData.value;
-        const flen = frequencyData.length;
-        for (let x = 0; x < layer.config.particleCount; x++) {
-          uData[x] = frequencyData[x % flen] ?? 0;
-        }
-      }
     }
   }
 
@@ -154,3 +211,4 @@ export class AuroraVisualizer {
     }
   }
 }
+

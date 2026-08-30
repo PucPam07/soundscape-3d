@@ -1,15 +1,20 @@
-export const PARTICLE_COUNT = 5500;
-export const DATA_SIZE = 256;
+export const PARTICLE_COUNT = 6500;
 
 export const particleCloudVertexShader = `
-  precision mediump float;
+  precision highp float;
 
   uniform float uTime;
-  uniform float uData[256];
-  uniform int uParticleCount;
-  uniform float uIntensity;
+  uniform float uBass;
+  uniform float uMid;
+  uniform float uTreble;
+  uniform float uAudioLevel;
+  uniform float uPixelRatio;
 
-  attribute float idx;
+  attribute vec3 aRandom;
+  attribute float aScale;
+  attribute float aFreq;
+  attribute float aSpeed;
+
   varying float vFreq;
   varying float vNoise;
   varying vec3 vColor;
@@ -17,64 +22,68 @@ export const particleCloudVertexShader = `
   varying float vDepthFade;
 
   void main() {
-    float id = idx;
-    float t = id / float(uParticleCount);
+    vFreq = aFreq;
+    vNoise = aRandom.x;
 
-    float angle = t * 6.2831853 * 2.0 + uTime * 0.15;
-    float swirl = 0.45 * sin(uTime * 0.3 + t * 10.0);
+    // 1. Orbital 3D Rotation and Swirling motion
+    float speed = aSpeed * 0.15 + 0.05;
+    float currentAngle = uTime * speed + aRandom.y * 6.2831853;
+    float cosA = cos(currentAngle);
+    float sinA = sin(currentAngle);
 
-    float freq = uData[int(mod(id, 256.0))] / 255.0;
-    float radius = 2.7 + sin(uTime * 0.5 + id) * 0.25 + freq * (0.8 + 0.5 * sin(uTime * 0.8 + t * 4.0));
-    float theta = angle + swirl;
-
-    float rnd = fract(sin(id * 1.13) * 43758.5453);
-    float phi = acos(2.0 * rnd - 1.0);
-
-    vec3 pos = vec3(
-      radius * sin(phi) * cos(theta),
-      radius * sin(phi) * sin(theta),
-      radius * cos(phi)
+    // Rotate position around Y axis
+    vec3 basePos = position;
+    vec3 rotPos = vec3(
+      basePos.x * cosA - basePos.z * sinA,
+      basePos.y,
+      basePos.x * sinA + basePos.z * cosA
     );
 
-    float chaos = sin(uTime + id * 0.001) * 0.35 + cos(uTime * 0.7 + id * 0.0006) * 0.25;
-    pos += vec3(
-      chaos * freq * 0.7 * sin(uTime * 1.1 + id * 0.03),
-      chaos * freq * 0.7 * cos(uTime * 0.8 + id * 0.03),
-      chaos * freq * 0.5 * sin(uTime * 0.9 - id * 0.02)
-    );
+    // 2. Audio Responsiveness (Bass breathing pulse, Mid ripple, Treble sparkle)
+    float baseDist = length(rotPos);
+    float pulse = uBass * 0.45 + uAudioLevel * 0.25;
+    
+    // Wave ripple along radius and latitude
+    float ripple = sin(uTime * 2.5 + baseDist * 3.0 + aRandom.z * 6.28) * 0.12 * (1.0 + uMid * 1.5);
+    float trebleShimmer = sin(uTime * 5.0 + aRandom.x * 12.0) * 0.08 * uTreble;
 
-    float pulse = smoothstep(0.65, 0.95, freq) * 1.0;
-    pos *= 1.0 + pulse * 0.4;
+    // Expanded position with audio dynamics
+    vec3 pos = rotPos * (1.0 + pulse + ripple) + aRandom * trebleShimmer;
 
-    vFreq = freq;
-    vNoise = chaos;
-    vGlow = pulse;
+    // Gentle orbital vortex drift along Y
+    pos.y += sin(uTime * 0.8 + baseDist * 1.5 + aRandom.y * 3.14) * 0.18 * (1.0 + uBass * 0.5);
 
-    // --- MINIMALIST DIAMOND & ICE PALETTE ---
-    vec3 deepSlate = vec3(0.25, 0.55, 0.85); // Luminous Ice Blue
-    vec3 iceCyan   = vec3(0.65, 0.90, 1.00); // Pale Cyan
-    vec3 diamond   = vec3(1.00, 1.00, 1.00); // Diamond White
+    // 3. Color Palette: Elegant Ice Cyan -> Diamond White
+    vec3 deepSlate = vec3(0.15, 0.45, 0.75); // Deep Luminous Arctic Blue
+    vec3 iceCyan   = vec3(0.48, 0.85, 1.00); // Brilliant Ice Cyan
+    vec3 diamond   = vec3(1.00, 1.00, 1.00); // Pure Diamond White
 
-    vec3 baseColor = mix(deepSlate, iceCyan, smoothstep(0.0, 0.6, freq + t * 0.3));
-    baseColor = mix(baseColor, diamond, smoothstep(0.5, 1.0, freq));
+    float colorMix = smoothstep(0.0, 0.7, aFreq * 0.6 + uAudioLevel * 0.4 + aRandom.x * 0.2);
+    vec3 baseColor = mix(deepSlate, iceCyan, colorMix);
+
+    // Highlight high energy and bass peaks with pure white
+    float peakGlow = smoothstep(0.5, 0.95, uBass * 0.7 + aFreq * 0.3 + aRandom.z * 0.2);
+    baseColor = mix(baseColor, diamond, peakGlow);
 
     vColor = baseColor;
+    vGlow = pulse + peakGlow * 0.5;
 
-    // Depth Fade
-    float camZ = (modelViewMatrix * vec4(pos, 1.0)).z;
-    vDepthFade = smoothstep(-1.5, -8.0, camZ);
-
-    // Dynamic point size
+    // 4. Model-View projection and Depth Fade
     vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
     gl_Position = projectionMatrix * mvPosition;
-    float dist = abs(gl_Position.w);
-    float baseSize = 34.0 + 26.0 * freq + 10.0 * pulse;
-    gl_PointSize = clamp(baseSize / dist, 2.0, 24.0);
+
+    // Camera depth fade for volumetric atmosphere
+    vDepthFade = smoothstep(-1.0, -12.0, mvPosition.z);
+
+    // Dynamic point size (responsive to pixel ratio, audio, and camera distance)
+    float pDist = max(0.5, -mvPosition.z);
+    float baseSize = aScale * (22.0 + uBass * 18.0 + uAudioLevel * 14.0 + peakGlow * 12.0);
+    gl_PointSize = clamp((baseSize * uPixelRatio) / pDist, 1.5, 32.0);
   }
 `;
 
 export const particleCloudFragmentShader = `
-  precision mediump float;
+  precision highp float;
 
   varying float vFreq;
   varying float vNoise;
@@ -85,22 +94,25 @@ export const particleCloudFragmentShader = `
   uniform float uTime;
 
   void main() {
+    // Distance from center of point sprite [0, 0.5]
     float d = length(gl_PointCoord - vec2(0.5));
     if (d > 0.5) discard;
 
-    float mainDisc = smoothstep(0.48, 0.12, d);
-    float center   = smoothstep(0.12, 0.02, d);
+    // Soft gaussian-like falloff disc with luminous core
+    float mainDisc = smoothstep(0.48, 0.10, d);
+    float starlightCore = smoothstep(0.12, 0.0, d);
 
-    float a = mainDisc * (0.35 + vFreq * 0.8) + center * 0.25;
-    a *= 0.95 * vDepthFade;
+    float alpha = mainDisc * 0.65 + starlightCore * 0.55;
+    alpha *= vDepthFade;
 
-    // Gentle twinkle
-    float twinkle = 0.75 + 0.25 * sin(uTime * 2.5 + vNoise * 8.0);
-    a *= twinkle;
+    // Delicate starlight twinkle
+    float twinkle = 0.8 + 0.2 * sin(uTime * 3.0 + vNoise * 31.415);
+    alpha *= twinkle;
 
-    vec3 color = vColor * 1.15;
+    vec3 finalColor = vColor * (1.0 + vGlow * 0.4);
 
-    gl_FragColor = vec4(color, a);
-    if (gl_FragColor.a < 0.02) discard;
+    gl_FragColor = vec4(finalColor, alpha);
+    if (gl_FragColor.a < 0.015) discard;
   }
 `;
+

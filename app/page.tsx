@@ -1,12 +1,13 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import { PlaylistItem, VisualizerType, YouTubeSong } from "@/types/player";
 import { useAudioPlayer, useFakeFrequencyData } from "@/hooks/useAudioPlayer";
 import { VisualizerCanvas } from "@/components/visualizer/VisualizerCanvas";
 import { VisualizerMenu } from "@/components/player/VisualizerMenu";
 import { PlaylistDrawer } from "@/components/player/PlaylistDrawer";
 import { YouTubeSearchModal } from "@/components/player/YouTubeSearchModal";
+import { FloatingYouTubePlayer } from "@/components/player/FloatingYouTubePlayer";
 import { PlayerBar } from "@/components/player/PlayerBar";
 import { Music } from "lucide-react";
 
@@ -129,24 +130,24 @@ export default function Home() {
   }, [showYouTubeModal]);
 
   // Controls Handlers
-  const handleTogglePlay = () => {
+  const handleTogglePlay = useCallback(() => {
     if (!currentTrack || !audioElement || isYouTube) return;
     if (isPlaying) {
       audioElement.pause();
     } else {
       audioElement.play().catch(() => {});
     }
-  };
+  }, [currentTrack, audioElement, isYouTube, isPlaying]);
 
-  const handlePrev = () => {
+  const handlePrev = useCallback(() => {
     if (currentIndex > 0) {
       setCurrentIndex((prev) => prev - 1);
     } else if (audioElement && !isYouTube) {
       audioElement.currentTime = 0;
     }
-  };
+  }, [currentIndex, audioElement, isYouTube]);
 
-  const handleNext = () => {
+  const handleNext = useCallback(() => {
     if (isShuffle && playlist.length > 1) {
       let nextIdx: number;
       do {
@@ -158,7 +159,63 @@ export default function Home() {
     } else if (isRepeat && playlist.length > 0) {
       setCurrentIndex(0);
     }
-  };
+  }, [currentIndex, isRepeat, isShuffle, playlist.length]);
+
+  // Media Session API for native Windows/Mobile media controls & background playback
+  useEffect(() => {
+    if (typeof window === "undefined" || !("mediaSession" in navigator)) return;
+
+    if (!currentTrack) {
+      navigator.mediaSession.metadata = null;
+      return;
+    }
+
+    let trackTitle = "SoundScape 3D";
+    let artist = "SoundScape Player";
+
+    if ("name" in currentTrack) {
+      trackTitle = currentTrack.name.replace(/\.[^/.]+$/, "");
+    }
+    if (isYouTube) {
+      artist = "YouTube Music";
+    }
+
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: trackTitle,
+      artist: artist,
+      album: "SoundScape 3D Visualizer",
+    });
+
+    navigator.mediaSession.playbackState = isPlaying ? "playing" : "paused";
+
+    try {
+      navigator.mediaSession.setActionHandler("play", () => {
+        if (audioElement && !isPlaying) {
+          audioElement.play().catch(() => {});
+        }
+      });
+      navigator.mediaSession.setActionHandler("pause", () => {
+        if (audioElement && isPlaying) {
+          audioElement.pause();
+        }
+      });
+      navigator.mediaSession.setActionHandler("previoustrack", () => {
+        handlePrev();
+      });
+      navigator.mediaSession.setActionHandler("nexttrack", () => {
+        handleNext();
+      });
+    } catch {}
+
+    return () => {
+      try {
+        navigator.mediaSession.setActionHandler("play", null);
+        navigator.mediaSession.setActionHandler("pause", null);
+        navigator.mediaSession.setActionHandler("previoustrack", null);
+        navigator.mediaSession.setActionHandler("nexttrack", null);
+      } catch {}
+    };
+  }, [currentTrack, isYouTube, isPlaying, audioElement, handlePrev, handleNext]);
 
   const handleSeek = (time: number) => {
     if (audioElement && !isYouTube) {
@@ -210,6 +267,41 @@ export default function Home() {
     }
   };
 
+  // Remove individual track from playlist
+  const handleRemoveTrack = (indexToRemove: number) => {
+    setPlaylist((prev) => {
+      const nextPlaylist = prev.filter((_, idx) => idx !== indexToRemove);
+
+      if (nextPlaylist.length === 0) {
+        setCurrentIndex(0);
+        if (audioElement) {
+          audioElement.pause();
+          audioElement.currentTime = 0;
+        }
+      } else if (indexToRemove === currentIndex) {
+        const nextIndex =
+          indexToRemove >= nextPlaylist.length
+            ? nextPlaylist.length - 1
+            : indexToRemove;
+        setCurrentIndex(nextIndex);
+      } else if (indexToRemove < currentIndex) {
+        setCurrentIndex((prevIdx) => Math.max(0, prevIdx - 1));
+      }
+
+      return nextPlaylist;
+    });
+  };
+
+  // Clear entire playlist
+  const handleClearPlaylist = () => {
+    setPlaylist([]);
+    setCurrentIndex(0);
+    if (audioElement) {
+      audioElement.pause();
+      audioElement.currentTime = 0;
+    }
+  };
+
   return (
     <div className="fixed inset-0 w-full h-full bg-gradient-to-br from-[#11101d] via-[#23243a] to-[#120a16] overflow-hidden select-none">
       {/* 3D WebGL Audio Visualizer Canvas */}
@@ -231,8 +323,11 @@ export default function Home() {
           playlist={playlist}
           currentIndex={currentIndex}
           isOpen={isPlaylistOpen}
+          isPlaying={isPlaying}
           onToggle={() => setIsPlaylistOpen((prev) => !prev)}
           onSelectTrack={setCurrentIndex}
+          onRemoveTrack={handleRemoveTrack}
+          onClearPlaylist={handleClearPlaylist}
         />
 
         {/* YouTube Music Search Modal Toggle */}
@@ -256,20 +351,11 @@ export default function Home() {
         )}
       </div>
 
-      {/* Embedded Floating YouTube Player (Bottom-Right) */}
+      {/* Modern Picture-in-Picture Floating YouTube Player */}
       {isYouTube && currentTrack && "youtubeId" in currentTrack && (
-        <div className="fixed bottom-6 right-8 z-50 shadow-2xl rounded-xl overflow-hidden border-2 border-indigo-800 bg-black/90 animate-fade-in">
-          <iframe
-            width={320}
-            height={180}
-            src={`https://www.youtube.com/embed/${currentTrack.youtubeId}?autoplay=1&controls=1`}
-            frameBorder={0}
-            allow="autoplay; encrypted-media"
-            allowFullScreen
-            title={currentTrack.name}
-            className="block"
-          />
-        </div>
+        <FloatingYouTubePlayer
+          currentTrack={currentTrack as YouTubeSong}
+        />
       )}
 
       {/* Bottom Audio Player Bar */}
@@ -301,3 +387,4 @@ export default function Home() {
     </div>
   );
 }
+
